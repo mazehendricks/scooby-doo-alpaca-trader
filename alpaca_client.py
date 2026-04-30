@@ -1,11 +1,10 @@
 """
-Robinhood API Client
-Handles authentication and trading operations with Robinhood
+Alpaca API Client
+Handles authentication and trading operations with Alpaca Markets
 """
 
 import logging
-import robin_stocks.robinhood as rh
-import pyotp
+import alpaca_trade_api as tradeapi
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from config import Config
@@ -14,23 +13,24 @@ from circuit_breaker import circuit_breaker
 logger = logging.getLogger(__name__)
 
 
-class RobinhoodClient:
+class AlpacaClient:
     """
-    Robinhood API Client with safety features
+    Alpaca API Client with safety features
     
     Provides secure authentication and trade execution with
-    circuit breaker integration
+    circuit breaker integration for Alpaca Markets
     """
     
     def __init__(self):
         self.authenticated = False
+        self.api = None
         self.account_info = None
         self.positions = {}
-        logger.info("Robinhood Client initialized")
+        logger.info("Alpaca Client initialized")
     
     def login(self) -> Tuple[bool, str]:
         """
-        Authenticate with Robinhood
+        Authenticate with Alpaca
         
         Returns:
             (success: bool, message: str)
@@ -39,38 +39,34 @@ class RobinhoodClient:
             # Validate configuration
             Config.validate()
             
-            # Handle MFA/2FA
-            mfa_code = None
-            if Config.ROBINHOOD_TOTP_SECRET:
-                # Use TOTP (authenticator app)
-                totp = pyotp.TOTP(Config.ROBINHOOD_TOTP_SECRET)
-                mfa_code = totp.now()
-                logger.info("Generated TOTP code for authentication")
-            elif Config.ROBINHOOD_MFA_CODE:
-                # Use provided SMS code
-                mfa_code = Config.ROBINHOOD_MFA_CODE
-                logger.info("Using provided MFA code")
+            # Determine base URL (paper or live trading)
+            base_url = Config.ALPACA_BASE_URL
             
-            # Attempt login
-            logger.info(f"Attempting login for user: {Config.ROBINHOOD_USERNAME}")
+            # Initialize Alpaca API
+            logger.info(f"Attempting connection to Alpaca ({base_url})")
             
-            login_result = rh.login(
-                username=Config.ROBINHOOD_USERNAME,
-                password=Config.ROBINHOOD_PASSWORD,
-                mfa_code=mfa_code,
-                store_session=True  # Store session to avoid repeated logins
+            self.api = tradeapi.REST(
+                key_id=Config.ALPACA_API_KEY,
+                secret_key=Config.ALPACA_SECRET_KEY,
+                base_url=base_url,
+                api_version='v2'
             )
             
-            if login_result:
+            # Test connection by fetching account
+            account = self.api.get_account()
+            
+            if account:
                 self.authenticated = True
-                self.account_info = self._fetch_account_info()
+                self.account_info = account
                 
                 # Activate circuit breaker with current balance
-                portfolio_value = self.get_portfolio_value()
+                portfolio_value = float(account.portfolio_value)
                 circuit_breaker.activate(portfolio_value)
                 
-                logger.info("✅ Successfully authenticated with Robinhood")
+                logger.info("✅ Successfully authenticated with Alpaca")
                 logger.info(f"Account value: ${portfolio_value:,.2f}")
+                logger.info(f"Buying power: ${float(account.buying_power):,.2f}")
+                logger.info(f"Paper Trading: {Config.ENABLE_PAPER_TRADING}")
                 
                 return True, "Successfully authenticated"
             else:
@@ -82,22 +78,22 @@ class RobinhoodClient:
             return False, f"Login error: {str(e)}"
     
     def logout(self):
-        """Logout from Robinhood"""
+        """Logout from Alpaca (close connection)"""
         try:
-            rh.logout()
+            self.api = None
             self.authenticated = False
             circuit_breaker.deactivate()
-            logger.info("Logged out from Robinhood")
+            logger.info("Disconnected from Alpaca")
         except Exception as e:
             logger.error(f"Logout error: {str(e)}")
     
     def get_portfolio_value(self) -> float:
         """Get total portfolio value"""
         try:
-            profile = rh.load_portfolio_profile()
-            if profile and 'equity' in profile:
-                return float(profile['equity'])
-            return 0.0
+            if not self.api:
+                return 0.0
+            account = self.api.get_account()
+            return float(account.portfolio_value)
         except Exception as e:
             logger.error(f"Error fetching portfolio value: {str(e)}")
             return 0.0
@@ -105,10 +101,10 @@ class RobinhoodClient:
     def get_buying_power(self) -> float:
         """Get available buying power"""
         try:
-            profile = rh.load_account_profile()
-            if profile and 'buying_power' in profile:
-                return float(profile['buying_power'])
-            return 0.0
+            if not self.api:
+                return 0.0
+            account = self.api.get_account()
+            return float(account.buying_power)
         except Exception as e:
             logger.error(f"Error fetching buying power: {str(e)}")
             return 0.0
@@ -116,19 +112,20 @@ class RobinhoodClient:
     def get_positions(self) -> List[Dict]:
         """Get current stock positions"""
         try:
-            positions = rh.get_open_stock_positions()
+            if not self.api:
+                return []
+            
+            positions = self.api.list_positions()
             result = []
             
             for position in positions:
-                symbol = rh.get_symbol_by_url(position['instrument'])
-                quantity = float(position['quantity'])
-                avg_price = float(position['average_buy_price'])
-                
-                # Get current price
-                current_price = self.get_stock_price(symbol)
-                current_value = quantity * current_price
-                pnl = current_value - (quantity * avg_price)
-                pnl_percent = (pnl / (quantity * avg_price)) * 100 if avg_price > 0 else 0
+                symbol = position.symbol
+                quantity = float(position.qty)
+                avg_price = float(position.avg_entry_price)
+                current_price = float(position.current_price)
+                current_value = float(position.market_value)
+                pnl = float(position.unrealized_pl)
+                pnl_percent = float(position.unrealized_plpc) * 100
                 
                 result.append({
                     'symbol': symbol,
@@ -149,9 +146,19 @@ class RobinhoodClient:
     def get_stock_price(self, symbol: str) -> float:
         """Get current stock price"""
         try:
-            quote = rh.get_latest_price(symbol)
-            if quote and len(quote) > 0:
-                return float(quote[0])
+            if not self.api:
+                return 0.0
+            
+            # Get latest trade
+            trade = self.api.get_latest_trade(symbol)
+            if trade:
+                return float(trade.price)
+            
+            # Fallback to last quote
+            quote = self.api.get_latest_quote(symbol)
+            if quote:
+                return float(quote.ask_price)
+            
             return 0.0
         except Exception as e:
             logger.error(f"Error fetching price for {symbol}: {str(e)}")
@@ -160,15 +167,21 @@ class RobinhoodClient:
     def get_stock_quote(self, symbol: str) -> Dict:
         """Get detailed stock quote"""
         try:
-            quote = rh.get_quote(symbol)
-            if quote:
+            if not self.api:
+                return {}
+            
+            quote = self.api.get_latest_quote(symbol)
+            trade = self.api.get_latest_trade(symbol)
+            
+            if quote and trade:
                 return {
                     'symbol': symbol,
-                    'price': float(quote['last_trade_price']),
-                    'ask_price': float(quote['ask_price']) if quote['ask_price'] else 0.0,
-                    'bid_price': float(quote['bid_price']) if quote['bid_price'] else 0.0,
-                    'volume': int(quote['volume']) if quote['volume'] else 0,
-                    'previous_close': float(quote['previous_close']) if quote['previous_close'] else 0.0
+                    'price': float(trade.price),
+                    'ask_price': float(quote.ask_price),
+                    'bid_price': float(quote.bid_price),
+                    'ask_size': int(quote.ask_size),
+                    'bid_size': int(quote.bid_size),
+                    'timestamp': trade.timestamp.isoformat()
                 }
             return {}
         except Exception as e:
@@ -187,7 +200,7 @@ class RobinhoodClient:
         Returns:
             (success: bool, message: str, order_details: Dict)
         """
-        if not self.authenticated:
+        if not self.authenticated or not self.api:
             return False, "Not authenticated", None
         
         try:
@@ -206,26 +219,18 @@ class RobinhoodClient:
                 logger.warning(f"Trade blocked by circuit breaker: {reason}")
                 return False, f"Trade blocked: {reason}", None
             
-            # Paper trading mode
-            if Config.ENABLE_PAPER_TRADING:
-                logger.info(f"📝 PAPER TRADE: BUY {quantity} {symbol} @ ${price:.2f}")
-                order_details = {
-                    'symbol': symbol,
-                    'quantity': quantity,
-                    'price': price,
-                    'total_value': quantity * price,
-                    'type': 'BUY',
-                    'status': 'PAPER_TRADE',
-                    'timestamp': datetime.now().isoformat()
-                }
-                circuit_breaker.record_trade(symbol, 'BUY', quantity, price)
-                return True, "Paper trade executed", order_details
+            # Execute order
+            logger.info(f"Executing BUY order: {quantity} {symbol} @ ${price:.2f}")
             
-            # Execute real order
-            logger.info(f"Executing BUY order: {quantity} {symbol}")
-            order = rh.order_buy_market(symbol, quantity)
+            order = self.api.submit_order(
+                symbol=symbol,
+                qty=quantity,
+                side='buy',
+                type='market',
+                time_in_force='gtc'  # Good 'til cancelled
+            )
             
-            if order and order.get('state') != 'failed':
+            if order:
                 circuit_breaker.record_trade(symbol, 'BUY', quantity, price)
                 circuit_breaker.update_balance(self.get_portfolio_value())
                 
@@ -233,17 +238,19 @@ class RobinhoodClient:
                     'symbol': symbol,
                     'quantity': quantity,
                     'price': price,
-                    'order_id': order.get('id'),
-                    'status': order.get('state'),
-                    'timestamp': datetime.now().isoformat()
+                    'order_id': order.id,
+                    'status': order.status,
+                    'type': 'BUY',
+                    'timestamp': datetime.now().isoformat(),
+                    'paper_trading': Config.ENABLE_PAPER_TRADING
                 }
                 
-                logger.info(f"✅ BUY order executed: {quantity} {symbol} @ ${price:.2f}")
+                mode = "📝 PAPER" if Config.ENABLE_PAPER_TRADING else "💰 LIVE"
+                logger.info(f"✅ {mode} BUY order executed: {quantity} {symbol} @ ${price:.2f}")
                 return True, "Order executed successfully", order_details
             else:
-                error_msg = order.get('detail', 'Order failed') if order else 'Order failed'
-                logger.error(f"❌ BUY order failed: {error_msg}")
-                return False, error_msg, None
+                logger.error(f"❌ BUY order failed")
+                return False, "Order failed", None
                 
         except Exception as e:
             logger.error(f"Error executing BUY order: {str(e)}")
@@ -261,7 +268,7 @@ class RobinhoodClient:
         Returns:
             (success: bool, message: str, order_details: Dict)
         """
-        if not self.authenticated:
+        if not self.authenticated or not self.api:
             return False, "Not authenticated", None
         
         try:
@@ -280,27 +287,18 @@ class RobinhoodClient:
                 logger.warning(f"Trade blocked by circuit breaker: {reason}")
                 return False, f"Trade blocked: {reason}", None
             
-            # Paper trading mode
-            if Config.ENABLE_PAPER_TRADING:
-                logger.info(f"📝 PAPER TRADE: SELL {quantity} {symbol} @ ${price:.2f}")
-                order_details = {
-                    'symbol': symbol,
-                    'quantity': quantity,
-                    'price': price,
-                    'total_value': quantity * price,
-                    'type': 'SELL',
-                    'status': 'PAPER_TRADE',
-                    'timestamp': datetime.now().isoformat()
-                }
-                circuit_breaker.record_trade(symbol, 'SELL', quantity, price)
-                return True, "Paper trade executed", order_details
+            # Execute order
+            logger.info(f"Executing SELL order: {quantity} {symbol} @ ${price:.2f}")
             
-            # Execute real order
-            logger.info(f"Executing SELL order: {quantity} {symbol}")
-            order = rh.order_sell_market(symbol, quantity)
+            order = self.api.submit_order(
+                symbol=symbol,
+                qty=quantity,
+                side='sell',
+                type='market',
+                time_in_force='gtc'
+            )
             
-            if order and order.get('state') != 'failed':
-                # Calculate P&L (simplified - would need position tracking for accuracy)
+            if order:
                 circuit_breaker.record_trade(symbol, 'SELL', quantity, price)
                 circuit_breaker.update_balance(self.get_portfolio_value())
                 
@@ -308,36 +306,33 @@ class RobinhoodClient:
                     'symbol': symbol,
                     'quantity': quantity,
                     'price': price,
-                    'order_id': order.get('id'),
-                    'status': order.get('state'),
-                    'timestamp': datetime.now().isoformat()
+                    'order_id': order.id,
+                    'status': order.status,
+                    'type': 'SELL',
+                    'timestamp': datetime.now().isoformat(),
+                    'paper_trading': Config.ENABLE_PAPER_TRADING
                 }
                 
-                logger.info(f"✅ SELL order executed: {quantity} {symbol} @ ${price:.2f}")
+                mode = "📝 PAPER" if Config.ENABLE_PAPER_TRADING else "💰 LIVE"
+                logger.info(f"✅ {mode} SELL order executed: {quantity} {symbol} @ ${price:.2f}")
                 return True, "Order executed successfully", order_details
             else:
-                error_msg = order.get('detail', 'Order failed') if order else 'Order failed'
-                logger.error(f"❌ SELL order failed: {error_msg}")
-                return False, error_msg, None
+                logger.error(f"❌ SELL order failed")
+                return False, "Order failed", None
                 
         except Exception as e:
             logger.error(f"Error executing SELL order: {str(e)}")
             return False, f"Error: {str(e)}", None
     
-    def _fetch_account_info(self) -> Dict:
-        """Fetch account information"""
-        try:
-            profile = rh.load_account_profile()
-            return profile if profile else {}
-        except Exception as e:
-            logger.error(f"Error fetching account info: {str(e)}")
-            return {}
-    
     def get_account_summary(self) -> Dict:
         """Get comprehensive account summary"""
         try:
-            portfolio_value = self.get_portfolio_value()
-            buying_power = self.get_buying_power()
+            if not self.api:
+                return {'error': 'Not connected'}
+            
+            account = self.api.get_account()
+            portfolio_value = float(account.portfolio_value)
+            buying_power = float(account.buying_power)
             positions = self.get_positions()
             
             total_pnl = sum(pos['pnl'] for pos in positions)
@@ -346,15 +341,37 @@ class RobinhoodClient:
                 'authenticated': self.authenticated,
                 'portfolio_value': portfolio_value,
                 'buying_power': buying_power,
+                'cash': float(account.cash),
                 'positions_count': len(positions),
                 'positions': positions,
                 'total_pnl': total_pnl,
-                'circuit_breaker': circuit_breaker.get_status()
+                'account_blocked': account.account_blocked,
+                'trading_blocked': account.trading_blocked,
+                'pattern_day_trader': account.pattern_day_trader,
+                'circuit_breaker': circuit_breaker.get_status(),
+                'paper_trading': Config.ENABLE_PAPER_TRADING
             }
         except Exception as e:
             logger.error(f"Error getting account summary: {str(e)}")
             return {'error': str(e)}
+    
+    def get_market_status(self) -> Dict:
+        """Get market clock and status"""
+        try:
+            if not self.api:
+                return {}
+            
+            clock = self.api.get_clock()
+            return {
+                'is_open': clock.is_open,
+                'timestamp': clock.timestamp.isoformat(),
+                'next_open': clock.next_open.isoformat(),
+                'next_close': clock.next_close.isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error getting market status: {str(e)}")
+            return {}
 
 
 # Global client instance
-robinhood_client = RobinhoodClient()
+alpaca_client = AlpacaClient()

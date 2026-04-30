@@ -1,6 +1,6 @@
 """
-Flask API Server for Robinhood Trading Bot
-Provides REST API endpoints for the frontend to interact with Robinhood
+Flask API Server for Alpaca Trading Bot
+Provides REST API endpoints for the frontend to interact with Alpaca Markets
 """
 
 import logging
@@ -9,7 +9,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from datetime import datetime
 from config import Config
-from robinhood_client import robinhood_client
+from alpaca_client import alpaca_client
 from circuit_breaker import circuit_breaker
 
 # Configure logging
@@ -44,7 +44,7 @@ app.config['SECRET_KEY'] = Config.SECRET_KEY
 CORS(app)  # Enable CORS for frontend communication
 
 logger.info("=" * 60)
-logger.info("🤖 AI Trading Bot API Server Starting")
+logger.info("🤖 AI Trading Bot API Server Starting (Alpaca)")
 logger.info("=" * 60)
 
 
@@ -54,12 +54,12 @@ logger.info("=" * 60)
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
-    """Authenticate with Robinhood"""
+    """Authenticate with Alpaca"""
     try:
-        success, message = robinhood_client.login()
+        success, message = alpaca_client.login()
         
         if success:
-            account_summary = robinhood_client.get_account_summary()
+            account_summary = alpaca_client.get_account_summary()
             return jsonify({
                 'success': True,
                 'message': message,
@@ -81,9 +81,9 @@ def login():
 
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
-    """Logout from Robinhood"""
+    """Logout from Alpaca"""
     try:
-        robinhood_client.logout()
+        alpaca_client.logout()
         return jsonify({
             'success': True,
             'message': 'Logged out successfully'
@@ -100,7 +100,7 @@ def logout():
 def auth_status():
     """Check authentication status"""
     return jsonify({
-        'authenticated': robinhood_client.authenticated,
+        'authenticated': alpaca_client.authenticated,
         'paper_trading': Config.ENABLE_PAPER_TRADING
     }), 200
 
@@ -112,11 +112,11 @@ def auth_status():
 @app.route('/api/account/summary', methods=['GET'])
 def account_summary():
     """Get account summary"""
-    if not robinhood_client.authenticated:
+    if not alpaca_client.authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        summary = robinhood_client.get_account_summary()
+        summary = alpaca_client.get_account_summary()
         return jsonify(summary), 200
     except Exception as e:
         logger.error(f"Account summary error: {str(e)}")
@@ -126,12 +126,12 @@ def account_summary():
 @app.route('/api/account/portfolio', methods=['GET'])
 def portfolio_value():
     """Get portfolio value"""
-    if not robinhood_client.authenticated:
+    if not alpaca_client.authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        value = robinhood_client.get_portfolio_value()
-        buying_power = robinhood_client.get_buying_power()
+        value = alpaca_client.get_portfolio_value()
+        buying_power = alpaca_client.get_buying_power()
         
         return jsonify({
             'portfolio_value': value,
@@ -146,11 +146,11 @@ def portfolio_value():
 @app.route('/api/account/positions', methods=['GET'])
 def positions():
     """Get current positions"""
-    if not robinhood_client.authenticated:
+    if not alpaca_client.authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        positions = robinhood_client.get_positions()
+        positions = alpaca_client.get_positions()
         return jsonify({
             'positions': positions,
             'count': len(positions)
@@ -167,11 +167,11 @@ def positions():
 @app.route('/api/market/quote/<symbol>', methods=['GET'])
 def get_quote(symbol):
     """Get stock quote"""
-    if not robinhood_client.authenticated:
+    if not alpaca_client.authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        quote = robinhood_client.get_stock_quote(symbol.upper())
+        quote = alpaca_client.get_stock_quote(symbol.upper())
         if quote:
             return jsonify(quote), 200
         else:
@@ -184,11 +184,11 @@ def get_quote(symbol):
 @app.route('/api/market/price/<symbol>', methods=['GET'])
 def get_price(symbol):
     """Get current stock price"""
-    if not robinhood_client.authenticated:
+    if not alpaca_client.authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        price = robinhood_client.get_stock_price(symbol.upper())
+        price = alpaca_client.get_stock_price(symbol.upper())
         return jsonify({
             'symbol': symbol.upper(),
             'price': price,
@@ -199,6 +199,20 @@ def get_price(symbol):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/market/status', methods=['GET'])
+def market_status():
+    """Get market status (open/closed)"""
+    if not alpaca_client.authenticated:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        status = alpaca_client.get_market_status()
+        return jsonify(status), 200
+    except Exception as e:
+        logger.error(f"Market status error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================================================
 # TRADING ENDPOINTS
 # ============================================================================
@@ -206,7 +220,7 @@ def get_price(symbol):
 @app.route('/api/trade/buy', methods=['POST'])
 def execute_buy():
     """Execute a BUY order"""
-    if not robinhood_client.authenticated:
+    if not alpaca_client.authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
@@ -217,7 +231,7 @@ def execute_buy():
         if not symbol or quantity <= 0:
             return jsonify({'error': 'Invalid symbol or quantity'}), 400
         
-        success, message, order_details = robinhood_client.execute_buy(symbol, quantity)
+        success, message, order_details = alpaca_client.execute_buy(symbol, quantity)
         
         if success:
             return jsonify({
@@ -243,7 +257,7 @@ def execute_buy():
 @app.route('/api/trade/sell', methods=['POST'])
 def execute_sell():
     """Execute a SELL order"""
-    if not robinhood_client.authenticated:
+    if not alpaca_client.authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
@@ -254,7 +268,7 @@ def execute_sell():
         if not symbol or quantity <= 0:
             return jsonify({'error': 'Invalid symbol or quantity'}), 400
         
-        success, message, order_details = robinhood_client.execute_sell(symbol, quantity)
+        success, message, order_details = alpaca_client.execute_sell(symbol, quantity)
         
         if success:
             return jsonify({
@@ -365,9 +379,10 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'authenticated': robinhood_client.authenticated,
+        'authenticated': alpaca_client.authenticated,
         'paper_trading': Config.ENABLE_PAPER_TRADING,
-        'circuit_breaker_active': circuit_breaker.state.is_active
+        'circuit_breaker_active': circuit_breaker.state.is_active,
+        'platform': 'Alpaca Markets'
     }), 200
 
 
@@ -375,13 +390,14 @@ def health_check():
 def index():
     """Root endpoint"""
     return jsonify({
-        'name': 'AI Trading Bot API',
-        'version': '1.0.0',
+        'name': 'AI Trading Bot API (Alpaca)',
+        'version': '2.0.0',
+        'platform': 'Alpaca Markets',
         'status': 'running',
         'endpoints': {
             'auth': ['/api/auth/login', '/api/auth/logout', '/api/auth/status'],
             'account': ['/api/account/summary', '/api/account/portfolio', '/api/account/positions'],
-            'market': ['/api/market/quote/<symbol>', '/api/market/price/<symbol>'],
+            'market': ['/api/market/quote/<symbol>', '/api/market/price/<symbol>', '/api/market/status'],
             'trading': ['/api/trade/buy', '/api/trade/sell'],
             'circuit_breaker': [
                 '/api/circuit-breaker/status',
@@ -415,6 +431,7 @@ def internal_error(error):
 
 if __name__ == '__main__':
     logger.info(f"Starting API server on port {Config.PORT}")
+    logger.info(f"Trading Platform: Alpaca Markets")
     logger.info(f"Paper Trading Mode: {Config.ENABLE_PAPER_TRADING}")
     logger.info(f"Debug Mode: {Config.DEBUG}")
     logger.info("=" * 60)

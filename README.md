@@ -1,14 +1,15 @@
-# 🤖 AI Trading Monitor - Deep Reinforcement Learning Portfolio Simulator
+# 🤖 AI Trading Bot - Deep Reinforcement Learning with Alpaca Markets
 
-A comprehensive web-based trading simulation system that demonstrates deep reinforcement learning (DRL) algorithms for portfolio optimization. This educational tool simulates AI-driven trading decisions while highlighting both the potential and risks of automated financial systems.
+A comprehensive AI-powered trading system that connects to Alpaca Markets for real trade execution. This system features deep reinforcement learning algorithms (PPO, A2C, SAC), comprehensive safety mechanisms, and a professional web-based dashboard.
 
-![AI Trading Monitor](https://img.shields.io/badge/AI-Trading%20Monitor-blue)
+![AI Trading Bot](https://img.shields.io/badge/AI-Trading%20Bot-blue)
+![Alpaca](https://img.shields.io/badge/Platform-Alpaca-green)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Status](https://img.shields.io/badge/status-Educational-yellow)
+![Status](https://img.shields.io/badge/status-Production%20Ready-brightgreen)
 
 ## 🎯 Overview
 
-This AI Trading Monitor implements three state-of-the-art deep reinforcement learning algorithms to simulate autonomous portfolio management:
+This AI Trading Bot implements three state-of-the-art deep reinforcement learning algorithms for autonomous portfolio management with **real trade execution** via Alpaca Markets:
 
 - **PPO (Proximal Policy Optimization)** - Superior risk-adjusted performance with stable policy updates
 - **A2C (Advantage Actor-Critic)** - Balances value estimation with policy optimization
@@ -50,9 +51,9 @@ News sentiment filtering to guard against financial deepfakes and AI-driven misi
 ## 🚀 Getting Started
 
 ### Prerequisites
-- **Python 3.8+** (for Robinhood API backend)
+- **Python 3.8+** (for Alpaca API backend)
 - **Modern web browser** (Chrome, Firefox, Safari, Edge)
-- **Robinhood account** with API access
+- **Alpaca account** (free, no minimum balance required)
 - **pip** (Python package manager)
 
 ### Installation
@@ -61,16 +62,16 @@ News sentiment filtering to guard against financial deepfakes and AI-driven misi
 
 **On Linux/macOS:**
 ```bash
-git clone https://github.com/yourusername/ai-trading-monitor.git
-cd ai-trading-monitor
+git clone https://github.com/yourusername/ai-trading-bot.git
+cd ai-trading-bot
 chmod +x setup.sh
 ./setup.sh
 ```
 
 **On Windows:**
 ```cmd
-git clone https://github.com/yourusername/ai-trading-monitor.git
-cd ai-trading-monitor
+git clone https://github.com/yourusername/ai-trading-bot.git
+cd ai-trading-bot
 setup.bat
 ```
 
@@ -78,8 +79,8 @@ setup.bat
 
 1. **Clone the repository:**
 ```bash
-git clone https://github.com/yourusername/ai-trading-monitor.git
-cd ai-trading-monitor
+git clone https://github.com/yourusername/ai-trading-bot.git
+cd ai-trading-bot
 ```
 
 2. **Create virtual environment:**
@@ -98,28 +99,25 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. **Configure credentials:**
+4. **Get Alpaca API Keys:**
+   - Sign up at [https://alpaca.markets](https://alpaca.markets)
+   - Navigate to [Paper Trading Dashboard](https://app.alpaca.markets/paper/dashboard/overview)
+   - Generate API keys (they start with `PK...` for paper trading)
+
+5. **Configure credentials:**
 ```bash
 # Copy the example environment file
 cp .env.example .env
 
-# Edit .env with your Robinhood credentials
-# Use your favorite text editor (nano, vim, notepad, etc.)
+# Edit .env with your Alpaca credentials
 nano .env
 ```
 
-5. **Configure your `.env` file:**
+6. **Configure your `.env` file:**
 ```env
-# Required: Your Robinhood credentials
-ROBINHOOD_USERNAME=your_email@example.com
-ROBINHOOD_PASSWORD=your_secure_password
-
-# Optional: For 2FA/MFA (choose one method)
-# Method 1: TOTP Secret (from authenticator app)
-ROBINHOOD_TOTP_SECRET=your_totp_secret_here
-
-# Method 2: SMS Code (enter when prompted)
-ROBINHOOD_MFA_CODE=
+# Required: Your Alpaca API credentials
+ALPACA_API_KEY=PKxxxxxxxxxxxxxxxxxx
+ALPACA_SECRET_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # CRITICAL: Start with paper trading enabled!
 ENABLE_PAPER_TRADING=True
@@ -134,9 +132,9 @@ MIN_ACCOUNT_BALANCE=1000.0
 ### ⚠️ CRITICAL SECURITY WARNINGS
 
 1. **NEVER commit your `.env` file to version control!** It contains your credentials.
-2. **Start with `ENABLE_PAPER_TRADING=True`** to test without real money.
-3. **Use a strong, unique password** for your Robinhood account.
-4. **Enable 2FA/MFA** on your Robinhood account for security.
+2. **Start with `ENABLE_PAPER_TRADING=True`** to test without real money ($100k virtual).
+3. **Keep your API keys secure** - treat them like passwords.
+4. **Use Paper Trading keys** (start with `PK...`) for testing.
 5. **Review all safety limits** before enabling real trading.
 
 ## 📖 Usage Guide
@@ -176,11 +174,11 @@ The server will start on `http://localhost:5000`
 
 1. **Authentication**:
    - Click "Start Simulation" button
-   - The system will automatically authenticate with Robinhood using your `.env` credentials
-   - Wait for "✅ Connected to Robinhood" message
+   - The system will automatically authenticate with Alpaca using your `.env` credentials
+   - Wait for "✅ Connected to Alpaca" message
 
 2. **Configure Trading Parameters**:
-   - **Initial Capital**: Displays your actual Robinhood account balance
+   - **Initial Capital**: Displays your Alpaca account balance ($100k for paper trading)
    - **DRL Algorithm**: Choose PPO, A2C, or SAC
    - **Risk Tolerance (λ)**: Adjust from 0 (conservative) to 1 (aggressive)
    - **Trading Speed**: Control decision frequency (0.5s - 2s per step)
@@ -354,7 +352,7 @@ Modify safety parameters in [`.env`](.env):
 MAX_DAILY_TRADES=50              # Maximum trades per day
 MAX_POSITION_SIZE_PERCENT=15.0   # Max % of portfolio per position
 MAX_DAILY_LOSS_PERCENT=5.0       # Stop if daily loss exceeds this
-MIN_ACCOUNT_BALANCE=1000.0       # Minimum balance to maintain
+MIN_ACCOUNT_BALANCE=1000.0       # Minimum balance to maintain (for live trading)
 ```
 
 ### Customizing Algorithms
@@ -404,17 +402,30 @@ This project is based on research exploring:
 
 ## 🛠️ Technology Stack
 
-- **Frontend**: HTML5, CSS3, Vanilla JavaScript
-- **Algorithms**: Custom DRL implementations (PPO, A2C, SAC)
-- **Architecture**: Client-side MVC pattern
-- **Data**: Simulated market data with realistic volatility
+### Frontend
+- HTML5, CSS3, Vanilla JavaScript
+- Real-time dashboard with live updates
+
+### Backend
+- Python 3.8+
+- Flask (Web framework)
+- Alpaca Trade API (Market connectivity)
+
+### Trading Platform
+- **Alpaca Markets** - Commission-free trading API
+- Real-time market data
+- Paper trading and live trading support
+
+### Algorithms
+- Custom DRL implementations (PPO, A2C, SAC)
+- Technical indicators (RSI, MACD, SMA, EMA)
 
 ## 🔧 API Endpoints
 
 The backend provides the following REST API endpoints:
 
 ### Authentication
-- `POST /api/auth/login` - Authenticate with Robinhood
+- `POST /api/auth/login` - Authenticate with Alpaca
 - `POST /api/auth/logout` - Logout
 - `GET /api/auth/status` - Check authentication status
 
@@ -426,6 +437,7 @@ The backend provides the following REST API endpoints:
 ### Market Data
 - `GET /api/market/quote/<symbol>` - Get stock quote
 - `GET /api/market/price/<symbol>` - Get current price
+- `GET /api/market/status` - Get market status (open/closed)
 
 ### Trading
 - `POST /api/trade/buy` - Execute BUY order
@@ -455,8 +467,8 @@ Contributions are welcome! Areas for improvement:
 ### Development Setup
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/ai-trading-monitor.git
-cd ai-trading-monitor
+git clone https://github.com/yourusername/ai-trading-bot.git
+cd ai-trading-bot
 
 # Setup environment
 ./setup.sh  # or setup.bat on Windows
@@ -473,6 +485,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
+- **Alpaca Markets**: Excellent trading API and platform
 - **FinRL Library**: Inspiration for DRL trading algorithms
 - **Stable-Baselines3**: Reference implementations of PPO, A2C, SAC
 - **OpenAI Gym**: Environment design patterns
@@ -489,15 +502,15 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ### Common Issues
 
 **"Backend server not running"**
-- Ensure `api_server.py` is running: `python api_server.py`
+- Ensure [`api_server.py`](api_server.py) is running: `python api_server.py`
 - Check that port 5000 is not in use
 - Verify virtual environment is activated
 
 **"Authentication failed"**
-- Double-check credentials in `.env` file
-- Ensure 2FA/MFA is properly configured
-- Try generating a new TOTP code
-- Check Robinhood account status
+- Double-check API keys in [`.env`](.env) file
+- Verify you're using Paper Trading keys (start with `PK...`)
+- Check Alpaca account status
+- Regenerate API keys if needed
 
 **"Circuit breaker tripped"**
 - Review circuit breaker status in UI
@@ -509,7 +522,12 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Verify sufficient buying power
 - Check position size limits
 - Ensure not exceeding daily trade limit
-- Confirm paper trading mode if testing
+- Confirm market is open (US market hours: 9:30 AM - 4:00 PM ET)
+
+**"Could not fetch price for SYMBOL"**
+- Verify symbol is valid (Alpaca supports US stocks only)
+- Check if market is open
+- Some stocks may not be tradeable on Alpaca
 
 **"Module not found" errors**
 - Activate virtual environment: `source venv/bin/activate`
@@ -523,19 +541,23 @@ Check logs for detailed error information:
 
 ## 🔮 Future Roadmap
 
-- [ ] ✅ **Robinhood API integration** (COMPLETED)
-- [ ] ✅ **Circuit breaker safety system** (COMPLETED)
+- [x] ✅ **Alpaca API integration** (COMPLETED)
+- [x] ✅ **Circuit breaker safety system** (COMPLETED)
+- [x] ✅ **Paper trading support** (COMPLETED)
+- [x] ✅ **Real trade execution** (COMPLETED)
 - [ ] Real-time data streaming via WebSocket
 - [ ] Advanced charting with TradingView integration
 - [ ] Multi-agent portfolio management
-- [ ] Sentiment analysis using LLMs (Llama 3, GPT-4)
+- [ ] Sentiment analysis using LLMs
 - [ ] Backtesting framework with historical data
 - [ ] Export reports (PDF, CSV)
 - [ ] Mobile app (React Native)
-- [ ] Support for other brokers (TD Ameritrade, E*TRADE)
+- [ ] Crypto trading support (Alpaca Crypto)
 
 ---
 
 **Built with ❤️ for education and research in AI-driven finance**
 
-⚠️ **Remember**: Past performance does not guarantee future results. AI trading carries significant risks. Always consult with qualified financial advisors before making investment decisions.
+**Powered by Alpaca Markets** 🦙
+
+⚠️ **Remember**: Past performance does not guarantee future results. AI trading carries significant risks. Start with paper trading, test thoroughly, and never risk more than you can afford to lose. Always consult with qualified financial advisors before making investment decisions.
